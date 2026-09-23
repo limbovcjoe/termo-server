@@ -10,13 +10,9 @@ const PORT = process.env.PORT || 3000;
 // ESTADO EM MEMÓRIA
 // ═══════════════════════════════════════════════════════════
 
-// Salas: { codigo: { jogador1, jogador2, mensagens: [] } }
 const salas = {};
-
-// Fila de matchmaking: [{ id, nome, modo, tamanho, aura, entrouEm }]
 let filaMatchmaking = [];
 
-// Jogadores (persistidos em JSON)
 let jogadores = {};
 const ARQUIVO_JOGADORES = path.join(__dirname, 'jogadores.json');
 
@@ -343,6 +339,7 @@ const server = http.createServer((req, res) => {
                     vitorias: 0,
                     derrotas: 0,
                     empates: 0,
+                    amigos: [],
                     criadoEm: agora,
                     ultimoAcesso: agora
                 };
@@ -388,6 +385,19 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (req.method === 'GET' && pathName === '/jogador/buscar') {
+        const nome = (parsed.query.nome || '').toLowerCase();
+        if (!nome) {
+            responderJSON(res, { ok: false, erro: 'Nome obrigatório' }, 400);
+            return;
+        }
+        const resultado = Object.values(jogadores)
+            .filter(j => (j.nome || '').toLowerCase().includes(nome))
+            .slice(0, 20);
+        responderJSON(res, { ok: true, resultado: resultado });
+        return;
+    }
+
     if (req.method === 'GET' && pathName === '/ranking') {
         const limite = parseInt(parsed.query.limite || '10');
         const lista = Object.values(jogadores)
@@ -398,6 +408,86 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // ═══════════════════════════════════════════════════════
+    // AMIGOS
+    // ═══════════════════════════════════════════════════════
+
+    if (req.method === 'POST' && pathName === '/amigo/adicionar') {
+        lerCorpo(req, body => {
+            const id = body.id || '';
+            const amigoId = body.amigoId || '';
+
+            if (!id || !amigoId || id === amigoId) {
+                responderJSON(res, { ok: false, erro: 'IDs inválidos' }, 400);
+                return;
+            }
+            if (!jogadores[id] || !jogadores[amigoId]) {
+                responderJSON(res, { ok: false, erro: 'Jogador não encontrado' }, 404);
+                return;
+            }
+
+            if (!jogadores[id].amigos) jogadores[id].amigos = [];
+            if (!jogadores[id].amigos.includes(amigoId)) {
+                jogadores[id].amigos.push(amigoId);
+            }
+            salvarJogadores();
+            responderJSON(res, { ok: true });
+        });
+        return;
+    }
+
+    if (req.method === 'POST' && pathName === '/amigo/remover') {
+        lerCorpo(req, body => {
+            const id = body.id || '';
+            const amigoId = body.amigoId || '';
+
+            if (!id || !amigoId) {
+                responderJSON(res, { ok: false, erro: 'IDs inválidos' }, 400);
+                return;
+            }
+            if (jogadores[id] && jogadores[id].amigos) {
+                jogadores[id].amigos = jogadores[id].amigos.filter(x => x !== amigoId);
+                salvarJogadores();
+            }
+            responderJSON(res, { ok: true });
+        });
+        return;
+    }
+
+    if (req.method === 'GET' && pathName === '/amigo/lista') {
+        const id = parsed.query.id || '';
+        if (!id || !jogadores[id]) {
+            responderJSON(res, { ok: false, erro: 'Jogador não encontrado' }, 404);
+            return;
+        }
+        const listaIds = jogadores[id].amigos || [];
+        const lista = listaIds
+            .map(aid => jogadores[aid])
+            .filter(j => j);
+        responderJSON(res, { ok: true, amigos: lista });
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // DAILY CHALLENGE
+    // ═══════════════════════════════════════════════════════
+
+    if (req.method === 'GET' && pathName === '/daily') {
+        const EPOCH = Date.UTC(2024, 0, 1);
+        const agora = Date.now();
+        const dia = Math.floor((agora - EPOCH) / 86400000);
+
+        responderJSON(res, {
+            ok: true,
+            dia: dia,
+            premio: 10000
+        });
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Rota não encontrada
+    // ═══════════════════════════════════════════════════════
     responderJSON(res, { erro: 'Rota não encontrada' }, 404);
 });
 
