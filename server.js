@@ -200,7 +200,7 @@ const server = http.createServer((req, res) => {
     }
 
     // ═══════════════════════════════════════════════════════
-    // MATCHMAKING
+    // MATCHMAKING (com suporte a aleatorio)
     // ═══════════════════════════════════════════════════════
 
     if (req.method === 'POST' && pathName === '/matchmaking/entrar') {
@@ -208,7 +208,7 @@ const server = http.createServer((req, res) => {
             const id = body.id || '';
             const nome = body.nome || 'Jogador';
             const modo = body.modo || 'contra';
-            const tamanho = parseInt(body.tamanho || 5);
+            const tamanho = parseInt(body.tamanho || 0); // 0 = aleatorio
             const aura = parseInt(body.aura || 0);
 
             if (!id) {
@@ -219,13 +219,27 @@ const server = http.createServer((req, res) => {
             filaMatchmaking = filaMatchmaking.filter(j => j.id !== id);
             limparFilaAntiga();
 
-            const idxOponente = filaMatchmaking.findIndex(j =>
-                j.modo === modo && j.tamanho === tamanho && j.id !== id
-            );
+            const idxOponente = filaMatchmaking.findIndex(j => {
+                if (j.id === id) return false;
+                if (j.modo !== modo) return false;
+                // Se algum dos dois e aleatorio (0), pareia com qualquer tamanho
+                if (j.tamanho === 0 || tamanho === 0) return true;
+                return j.tamanho === tamanho;
+            });
 
             if (idxOponente >= 0) {
                 const oponente = filaMatchmaking[idxOponente];
                 filaMatchmaking.splice(idxOponente, 1);
+
+                // Decide o tamanho final
+                let tamanhoFinal;
+                if (tamanho === 0 && oponente.tamanho === 0) {
+                    tamanhoFinal = 0; // ambos aleatorio -> client sorteia
+                } else if (tamanho === 0) {
+                    tamanhoFinal = oponente.tamanho;
+                } else {
+                    tamanhoFinal = tamanho;
+                }
 
                 let codigo = gerarCodigo();
                 while (salas[codigo]) codigo = gerarCodigo();
@@ -239,7 +253,7 @@ const server = http.createServer((req, res) => {
                     idJog1: oponente.id,
                     idJog2: id,
                     modo: modo,
-                    tamanho: tamanho
+                    tamanho: tamanhoFinal
                 };
 
                 responderJSON(res, {
@@ -249,7 +263,8 @@ const server = http.createServer((req, res) => {
                     souHost: false,
                     nomeOponente: oponente.nome,
                     idOponente: oponente.id,
-                    auraOponente: oponente.aura
+                    auraOponente: oponente.aura,
+                    tamanhoFinal: tamanhoFinal
                 });
                 return;
             }
@@ -287,7 +302,8 @@ const server = http.createServer((req, res) => {
                     souHost: true,
                     nomeOponente: s.jogador2,
                     idOponente: s.idJog2 || '',
-                    auraOponente: 0
+                    auraOponente: 0,
+                    tamanhoFinal: s.tamanho
                 });
                 return;
             }
