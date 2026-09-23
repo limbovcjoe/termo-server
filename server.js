@@ -78,6 +78,16 @@ function limparFilaAntiga() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// CONFIG VERSAO (mude aqui quando lancar nova versao)
+// ═══════════════════════════════════════════════════════════
+
+const VERSAO_ATUAL = {
+    code: 1,
+    nome: "1.0",
+    notas: ""
+};
+
+// ═══════════════════════════════════════════════════════════
 // SERVER
 // ═══════════════════════════════════════════════════════════
 
@@ -208,7 +218,7 @@ const server = http.createServer((req, res) => {
             const id = body.id || '';
             const nome = body.nome || 'Jogador';
             const modo = body.modo || 'contra';
-            const tamanho = parseInt(body.tamanho || 0); // 0 = aleatorio
+            const tamanho = parseInt(body.tamanho || 0);
             const aura = parseInt(body.aura || 0);
 
             if (!id) {
@@ -222,7 +232,6 @@ const server = http.createServer((req, res) => {
             const idxOponente = filaMatchmaking.findIndex(j => {
                 if (j.id === id) return false;
                 if (j.modo !== modo) return false;
-                // Se algum dos dois e aleatorio (0), pareia com qualquer tamanho
                 if (j.tamanho === 0 || tamanho === 0) return true;
                 return j.tamanho === tamanho;
             });
@@ -231,10 +240,9 @@ const server = http.createServer((req, res) => {
                 const oponente = filaMatchmaking[idxOponente];
                 filaMatchmaking.splice(idxOponente, 1);
 
-                // Decide o tamanho final
                 let tamanhoFinal;
                 if (tamanho === 0 && oponente.tamanho === 0) {
-                    tamanhoFinal = 0; // ambos aleatorio -> client sorteia
+                    tamanhoFinal = 0;
                 } else if (tamanho === 0) {
                     tamanhoFinal = oponente.tamanho;
                 } else {
@@ -497,6 +505,20 @@ const server = http.createServer((req, res) => {
             ok: true,
             dia: dia,
             premio: 10000
+        });
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // VERSAO (atualizacao in-app)
+    // ═══════════════════════════════════════════════════════
+
+    if (req.method === 'GET' && pathName === '/versao') {
+        responderJSON(res, {
+            ok: true,
+            versaoCode: VERSAO_ATUAL.code,
+            versaoNome: VERSAO_ATUAL.nome,
+            notas: VERSAO_ATUAL.notas
         });
         return;
     }
