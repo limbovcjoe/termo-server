@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V3RBOS — Admin</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #150A1E;
+    color: #FFFFFF;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    color: #7C3AED;
+    text-align: center;
+    font-size: 28px;
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+  }
+  .sub {
+    color: #A89EB0;
+    text-align: center;
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: #1E1128;
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #2A1836;
+  }
+  .card .label {
+    color: #A89EB0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+  .card .valor {
+    color: #7C3AED;
+    font-size: 28px;
+    font-weight: bold;
+  }
+  .section {
+    background: #1E1128;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid #2A1836;
+  }
+  .section h2 {
+    color: #7C3AED;
+    font-size: 16px;
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+  }
+  .linha {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #2A1836;
+    font-size: 14px;
+  }
+  .linha:last-child { border-bottom: none; }
+  .linha .nome { color: #FFFFFF; }
+  .linha .valor { color: #10B981; font-weight: bold; }
+  .erro {
+    background: #DC2626;
+    color: white;
+    padding: 16px;
+    border-radius: 12px;
+    text-align: center;
+    margin-top: 40px;
+  }
+  .btn-atualizar {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    background: #7C3AED;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-bottom: 20px;
+  }
+  .btn-atualizar:hover { background: #6D28D9; }
+  .loading { text-align: center; color: #A89EB0; padding: 40px; }
+</style>
+</head>
+<body>
+  <h1>V3RBOS ADMIN</h1>
+  <div class="sub" id="subtitulo">Carregando...</div>
+
+  <div id="conteudo"></div>
+
+  <button class="btn-atualizar" onclick="carregar()">🔄 ATUALIZAR</button>
+
+<script>
+  // Senha fica na URL (?senha=xxx). Pode bookmarkar.
+  const params = new URLSearchParams(window.location.search);
+  const senha = params.get('senha') || '';
+
+  if (!senha) {
+    document.getElementById('conteudo').innerHTML =
+      '<div class="erro">Adicione ?senha=SUA_SENHA na URL</div>';
+  } else {
+    carregar();
+    // Auto-refresh a cada 30s
+    setInterval(carregar, 30000);
+  }
+
+  async function carregar() {
+    try {
+      const r = await fetch('/admin/status?senha=' + encodeURIComponent(senha));
+      const d = await r.json();
+
+      if (!d.ok) {
+        document.getElementById('conteudo').innerHTML =
+          '<div class="erro">Senha inválida</div>';
+        return;
+      }
+
+      document.getElementById('subtitulo').textContent =
+        'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
+      render(d);
+    } catch (e) {
+      document.getElementById('conteudo').innerHTML =
+        '<div class="erro">Erro: ' + e.message + '</div>';
+    }
+  }
+
+  function render(d) {
+    let html = '';
+
+    // Cards principais
+    html += '<div class="grid">';
+    html += card('Total de jogadores', d.total);
+    html += card('Ativos hoje', d.ativosHoje);
+    html += card('Ativos na semana', d.ativosSemana);
+    html += card('Ativos no mês', d.ativosMes);
+    html += card('Partidas totais', d.totalJogos || 0);
+    html += card('Daily jogados', d.daily?.jogados || 0);
+    html += card('Daily acertos', d.daily?.acertos || 0);
+    const taxa = d.daily?.jogados > 0
+      ? Math.round((d.daily.acertos / d.daily.jogados) * 100) + '%'
+      : '—';
+    html += card('Taxa de acerto', taxa);
+    html += '</div>';
+
+    // Versões
+    html += '<div class="section">';
+    html += '<h2>📱 VERSÕES INSTALADAS</h2>';
+    for (const v in d.porVersao) {
+      html += linha(v, d.porVersao[v] + ' jogadores');
+    }
+    if (Object.keys(d.porVersao).length === 0) html += linha('Nenhum dado ainda', '');
+    html += '</div>';
+
+    // Modos mais jogados
+    html += '<div class="section">';
+    html += '<h2>🎮 MODOS MAIS JOGADOS</h2>';
+    const modosOrd = Object.entries(d.modos || {}).sort((a,b) => b[1].jogos - a[1].jogos);
+    for (const [m, dados] of modosOrd) {
+      html += linha(m.toUpperCase(), dados.jogos + ' jogos · ' + dados.vitorias + ' vitórias');
+    }
+    if (modosOrd.length === 0) html += linha('Nenhum dado ainda', '');
+    html += '</div>';
+
+    // Mini-games
+    html += '<div class="section">';
+    html += '<h2>🥚 MINI-GAMES DESCOBERTOS</h2>';
+    for (const g in d.minigames || {}) {
+      const info = d.minigames[g];
+      html += linha(g.toUpperCase(), info.jogadores + ' jogadores · recorde ' + info.melhor);
+    }
+    if (Object.keys(d.minigames || {}).length === 0) html += linha('Ninguém descobriu ainda', '');
+    html += '</div>';
+
+    document.getElementById('conteudo').innerHTML = html;
+  }
+
+  function card(label, valor) {
+    return '<div class="card"><div class="label">' + label + '</div>' +
+           '<div class="valor">' + valor + '</div></div>';
+  }
+
+  function linha(nome, valor) {
+    return '<div class="linha"><span class="nome">' + nome +
+           '</span><span class="valor">' + valor + '</span></div>';
+  }
+</script>
+</body>
+</html>
