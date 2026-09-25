@@ -225,9 +225,9 @@ function limparFilaAntiga() {
 // ═══════════════════════════════════════════════════════════
 
 const VERSAO_ATUAL = {
-    code: 2,
-    nome: "1.1",
-    notas: "Novos mini-games: Snake, Breakout, Flappy, Tetris e Runner! Pong 2v2 no Hotseat. Novas músicas, conquistas animadas e muito mais."
+    code: 3,
+    nome: "1.1.1",
+    notas: "Novo mini-game secreto: Pacman! Tracking completo, painel admin, correções de bugs e mais."
 };
 
 // ═══════════════════════════════════════════════════════════
