@@ -46,28 +46,131 @@ let filaMatchmaking = [];
 let jogadores = {};
 const ARQUIVO_JOGADORES = path.join(__dirname, 'jogadores.json');
 
-function carregarJogadores() {
+// ═══════════════════════════════════════════════════════════
+// GITHUB PERSISTENCE
+// ═══════════════════════════════════════════════════════════
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const GITHUB_REPO = 'limbovcjoe/v3rbos-data';
+const GITHUB_ARQUIVO = 'jogadores.json';
+
+function githubHeaders() {
+    return {
+        'Authorization': 'token ' + GITHUB_TOKEN,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'v3rbos-server'
+    };
+}
+
+async function carregarJogadoresDoGithub() {
+    if (!GITHUB_TOKEN) {
+        console.log('AVISO: GITHUB_TOKEN nao configurado, usando so disco local');
+        return carregarJogadoresLocal();
+    }
+    try {
+        const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_ARQUIVO}`;
+        const resposta = await fetch(url, { headers: githubHeaders() });
+        if (!resposta.ok) {
+            console.log('Github retornou ' + resposta.status + ', usando local');
+            return carregarJogadoresLocal();
+        }
+        const dados = await resposta.json();
+        const conteudo = Buffer.from(dados.content, 'base64').toString('utf8');
+        jogadores = JSON.parse(conteudo || '{}');
+        console.log('Jogadores carregados do GitHub: ' + Object.keys(jogadores).length);
+    } catch (e) {
+        console.error('Erro ao carregar do GitHub: ' + e.message);
+        carregarJogadoresLocal();
+    }
+}
+
+function carregarJogadoresLocal() {
     try {
         if (fs.existsSync(ARQUIVO_JOGADORES)) {
             const dados = fs.readFileSync(ARQUIVO_JOGADORES, 'utf8');
             jogadores = JSON.parse(dados || '{}');
-            console.log('Jogadores carregados: ' + Object.keys(jogadores).length);
+            console.log('Jogadores carregados do disco: ' + Object.keys(jogadores).length);
         }
     } catch (e) {
-        console.error('Erro ao carregar jogadores: ' + e.message);
+        console.error('Erro ao carregar local: ' + e.message);
         jogadores = {};
     }
 }
 
-function salvarJogadores() {
+// Fila simples pra evitar commits concorrentes
+let commitEmAndamento = false;
+let commitAgendado = false;
+
+async function salvarJogadores() {
+    // 1. Sempre salva no disco local (rapido)
     try {
         fs.writeFileSync(ARQUIVO_JOGADORES, JSON.stringify(jogadores, null, 2));
     } catch (e) {
-        console.error('Erro ao salvar jogadores: ' + e.message);
+        console.error('Erro ao salvar local: ' + e.message);
+    }
+
+    // 2. Se já tem commit rolando, agenda mais um
+    if (commitEmAndamento) {
+        commitAgendado = true;
+        return;
+    }
+
+    if (!GITHUB_TOKEN) return;
+
+    commitEmAndamento = true;
+    try {
+        await commitParaGithub();
+    } catch (e) {
+        console.error('Erro no commit GitHub: ' + e.message);
+    }
+    commitEmAndamento = false;
+
+    // Se tinha alguém agendado, dispara de novo
+    if (commitAgendado) {
+        commitAgendado = false;
+        salvarJogadores();
     }
 }
 
-carregarJogadores();
+async function commitParaGithub() {
+    const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_ARQUIVO}`;
+
+    // Pega o SHA atual
+    let shaAtual = null;
+    try {
+        const atual = await fetch(url, { headers: githubHeaders() });
+        if (atual.ok) {
+            const dados = await atual.json();
+            shaAtual = dados.sha;
+        }
+    } catch (_) {}
+
+    const conteudo = Buffer.from(JSON.stringify(jogadores, null, 2)).toString('base64');
+
+    const body = {
+        message: 'sync: jogadores ' + new Date().toISOString(),
+        content: conteudo,
+        committer: {
+            name: 'V3RBOS Server',
+            email: 'server@v3rbos.local'
+        }
+    };
+    if (shaAtual) body.sha = shaAtual;
+
+    const resp = await fetch(url, {
+        method: 'PUT',
+        headers: { ...githubHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error('GitHub ' + resp.status + ': ' + txt.substring(0, 100));
+    }
+}
+
+// Carrega do GitHub na inicializacao (async)
+carregarJogadoresDoGithub();
 
 // ═══════════════════════════════════════════════════════════
 // HELPERS
