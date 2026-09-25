@@ -82,9 +82,9 @@ function limparFilaAntiga() {
 // ═══════════════════════════════════════════════════════════
 
 const VERSAO_ATUAL = {
-    code: 1,
-    nome: "1.0",
-    notas: ""
+    code: 2,
+    nome: "1.1",
+    notas: "Novos mini-games: Snake, Breakout, Flappy, Tetris e Runner! Pong 2v2 no Hotseat. Novas músicas, conquistas animadas e muito mais."
 };
 
 // ═══════════════════════════════════════════════════════════
