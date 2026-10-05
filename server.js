@@ -29,6 +29,18 @@ const CONFIG = {
     miniRunner: true,
 
     matchmakingAtivo: true,
+
+    // ─── PokéGames ───
+    pkPokedle: true,
+    pkMonkepo: true,
+    pkRun: false,
+    pkTorneio: false,
+    pkFusoes: true,
+    pkPrefere: true,
+    pkMensagemGlobal: "",
+    pkVersaoCode: 1,
+    pkVersaoNome: "1.0.0",
+    pkVersaoNotas: "Versão inicial do PokéGames".
     mensagemGlobal: '',
     emManutencao: false,
     mensagemManutencao: ''
@@ -1097,6 +1109,126 @@ const server = http.createServer((req, res) => {
         responderJSON(res, {
             ok: true, totalVotos: totalA + totalB, totalPerguntas,
             maisPolemicas: lista.slice(0, 10)
+        });
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // POKEGAMES — CONFIG E DIÁRIO
+    // ═══════════════════════════════════════════════════════
+
+    if (req.method === 'GET' && pathName === '/pokegames/config') {
+        responderJSON(res, {
+            ok: true,
+            pokedle: CONFIG.pkPokedle,
+            monkepo: CONFIG.pkMonkepo,
+            run: CONFIG.pkRun,
+            torneio: CONFIG.pkTorneio,
+            fusoes: CONFIG.pkFusoes,
+            prefere: CONFIG.pkPrefere,
+            mensagemGlobal: CONFIG.pkMensagemGlobal,
+            versaoCode: CONFIG.pkVersaoCode,
+            versaoNome: CONFIG.pkVersaoNome,
+            versaoNotas: CONFIG.pkVersaoNotas
+        });
+        return;
+    }
+
+    if (req.method === 'GET' && pathName === '/pokegames/diario') {
+        const EPOCH = Date.UTC(2025, 0, 1);
+        const agora = Date.now();
+        const dia = Math.floor((agora - EPOCH) / 86400000);
+
+        // Seed determinística a partir do dia
+        function seededRandom(seed) {
+            let x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Pokédle: entre 1 e 500
+        const pokemonDia = Math.floor(seededRandom(dia) * 500) + 1;
+        // Monkepo: outro Pokémon no mesmo dia
+        const monkepoDia = Math.floor(seededRandom(dia * 7 + 3) * 1025) + 1;
+        // Prefere: pergunta do dia entre 1 e 500
+        const perguntaDia = Math.floor(seededRandom(dia * 13 + 7) * 500) + 1;
+
+        responderJSON(res, {
+            ok: true,
+            dia: dia,
+            pokemonPokedle: pokemonDia,
+            pokemonMonkepo: monkepoDia,
+            perguntaPrefere: perguntaDia,
+            proximoDiaEm: 86400000 - ((agora - EPOCH) % 86400000)
+        });
+        return;
+    }
+
+    if (req.method === 'GET' && pathName === '/pokegames/polemica') {
+        let melhorId = null;
+        let melhorPolar = 100;
+        let melhorPct = 50;
+        for (const id in votos) {
+            const v = votos[id];
+            const total = (v.votosA || 0) + (v.votosB || 0);
+            if (total < 20) continue;  // ignora as com poucos votos
+            const pctA = Math.round((v.votosA * 100) / total);
+            const polar = Math.abs(50 - pctA);
+            if (polar < melhorPolar) {
+                melhorPolar = polar;
+                melhorId = id;
+                melhorPct = pctA;
+            }
+        }
+        responderJSON(res, {
+            ok: true,
+            perguntaId: melhorId,
+            pctA: melhorPct,
+            pctB: 100 - melhorPct
+        });
+        return;
+    }
+
+    if (req.method === 'POST' && pathName === '/pokegames/feedback') {
+        lerCorpo(req, body => {
+            const texto = (body.texto || '').substring(0, 2000);
+            const deviceId = body.deviceId || '';
+            const jogo = body.jogo || 'geral';
+            if (!texto) {
+                responderJSON(res, { ok: false, erro: 'Texto vazio' }, 400);
+                return;
+            }
+            if (!global.pokegamesFeedback) global.pokegamesFeedback = [];
+            global.pokegamesFeedback.push({
+                texto, deviceId, jogo,
+                em: Date.now()
+            });
+            // Limita a 500 itens em memória
+            if (global.pokegamesFeedback.length > 500) {
+                global.pokegamesFeedback = global.pokegamesFeedback.slice(-500);
+            }
+            console.log('Feedback: ' + jogo + ' -> ' + texto.substring(0, 80));
+            responderJSON(res, { ok: true });
+        });
+        return;
+    }
+
+    if (req.method === 'POST' && pathName === '/pokegames/admin/config') {
+        lerCorpo(req, body => {
+            if ((body.senha || '') !== SENHA_ADMIN) {
+                responderJSON(res, { ok: false, erro: 'Senha inválida' }, 403);
+                return;
+            }
+            if (typeof body.pokedle === 'boolean') CONFIG.pkPokedle = body.pokedle;
+            if (typeof body.monkepo === 'boolean') CONFIG.pkMonkepo = body.monkepo;
+            if (typeof body.run === 'boolean') CONFIG.pkRun = body.run;
+            if (typeof body.torneio === 'boolean') CONFIG.pkTorneio = body.torneio;
+            if (typeof body.fusoes === 'boolean') CONFIG.pkFusoes = body.fusoes;
+            if (typeof body.prefere === 'boolean') CONFIG.pkPrefere = body.prefere;
+            if (typeof body.mensagemGlobal === 'string') CONFIG.pkMensagemGlobal = body.mensagemGlobal;
+            if (typeof body.versaoCode === 'number') CONFIG.pkVersaoCode = body.versaoCode;
+            if (typeof body.versaoNome === 'string') CONFIG.pkVersaoNome = body.versaoNome;
+            if (typeof body.versaoNotas === 'string') CONFIG.pkVersaoNotas = body.versaoNotas;
+            responderJSON(res, { ok: true });
         });
         return;
     }
