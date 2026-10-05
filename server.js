@@ -40,7 +40,7 @@ const CONFIG = {
     pkMensagemGlobal: "",
     pkVersaoCode: 1,
     pkVersaoNome: "1.0.0",
-    pkVersaoNotas: "Versão inicial do PokéGames".
+    pkVersaoNotas: "Versão inicial do PokéGames",
     mensagemGlobal: '',
     emManutencao: false,
     mensagemManutencao: ''
