@@ -46,6 +46,9 @@ let filaMatchmaking = [];
 let jogadores = {};
 const ARQUIVO_JOGADORES = path.join(__dirname, 'jogadores.json');
 
+const ARQUIVO_VOTOS = path.join(__dirname, 'votos_prefere.json');
+let votos = {};
+
 // ═══════════════════════════════════════════════════════════
 // GITHUB PERSISTENCE
 // ═══════════════════════════════════════════════════════════
@@ -171,6 +174,84 @@ async function commitParaGithub() {
 
 // Carrega do GitHub na inicializacao (async)
 carregarJogadoresDoGithub();
+
+// ═══════════════════════════════════════════════════════════
+// PREFERE — PERSISTENCIA
+// ═══════════════════════════════════════════════════════════
+
+const GITHUB_VOTOS_ARQUIVO = 'votos_prefere.json';
+
+async function carregarVotosDoGithub() {
+    if (!GITHUB_TOKEN) return carregarVotosLocal();
+    try {
+        const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_VOTOS_ARQUIVO}`;
+        const resposta = await fetch(url, { headers: githubHeaders() });
+        if (!resposta.ok) return carregarVotosLocal();
+        const dados = await resposta.json();
+        const conteudo = Buffer.from(dados.content, 'base64').toString('utf8');
+        votos = JSON.parse(conteudo || '{}');
+        console.log('Votos carregados do GitHub: ' + Object.keys(votos).length);
+    } catch (e) {
+        console.error('Erro votos GitHub: ' + e.message);
+        carregarVotosLocal();
+    }
+}
+
+function carregarVotosLocal() {
+    try {
+        if (fs.existsSync(ARQUIVO_VOTOS)) {
+            votos = JSON.parse(fs.readFileSync(ARQUIVO_VOTOS, 'utf8') || '{}');
+            console.log('Votos carregados do disco: ' + Object.keys(votos).length);
+        }
+    } catch (e) {
+        console.error('Erro votos local: ' + e.message);
+        votos = {};
+    }
+}
+
+let ultimoCommitVotos = 0;
+let timeoutCommitVotos = null;
+
+async function salvarVotos() {
+    try {
+        fs.writeFileSync(ARQUIVO_VOTOS, JSON.stringify(votos, null, 2));
+    } catch (e) {
+        console.error('Erro salvar votos local: ' + e.message);
+    }
+    if (!GITHUB_TOKEN) return;
+
+    const espera = Math.max(0, 30000 - (Date.now() - ultimoCommitVotos));
+    if (timeoutCommitVotos) clearTimeout(timeoutCommitVotos);
+    timeoutCommitVotos = setTimeout(async () => {
+        timeoutCommitVotos = null;
+        ultimoCommitVotos = Date.now();
+        try {
+            const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_VOTOS_ARQUIVO}`;
+            let shaAtual = null;
+            try {
+                const atual = await fetch(url, { headers: githubHeaders() });
+                if (atual.ok) shaAtual = (await atual.json()).sha;
+            } catch (_) {}
+            const body = {
+                message: 'sync: votos prefere ' + new Date().toISOString(),
+                content: Buffer.from(JSON.stringify(votos, null, 2)).toString('base64'),
+                committer: { name: 'Pokegames Server', email: 'server@pokegames.local' }
+            };
+            if (shaAtual) body.sha = shaAtual;
+            const resp = await fetch(url, {
+                method: 'PUT',
+                headers: { ...githubHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!resp.ok) throw new Error('GitHub ' + resp.status);
+        } catch (e) {
+            console.error('Erro commit votos: ' + e.message);
+        }
+    }, espera);
+}
+
+carregarVotosDoGithub();
+
 
 // ═══════════════════════════════════════════════════════════
 // HELPERS
@@ -960,6 +1041,66 @@ const server = http.createServer((req, res) => {
     }
 
     // ═══════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════
+    // PREFERE — VOTOS
+    // ═══════════════════════════════════════════════════════
+
+    if (req.method === 'POST' && pathName === '/prefere/votar') {
+        lerCorpo(req, body => {
+            const perguntaId = String(body.perguntaId || '');
+            const opcao = (body.opcao || '').toUpperCase();
+            const deviceId = body.deviceId || '';
+            if (!perguntaId || (opcao !== 'A' && opcao !== 'B')) {
+                return responderJSON(res, { ok: false, erro: 'Dados invalidos' }, 400);
+            }
+            if (!votos[perguntaId]) votos[perguntaId] = { votosA: 0, votosB: 0, votantes: {} };
+            const v = votos[perguntaId];
+            if (!v.votantes) v.votantes = {};
+            if (deviceId && v.votantes[deviceId]) {
+                return responderJSON(res, {
+                    ok: true, jaVotou: true,
+                    votosA: v.votosA, votosB: v.votosB,
+                    votoAnterior: v.votantes[deviceId]
+                });
+            }
+            if (opcao === 'A') v.votosA++; else v.votosB++;
+            if (deviceId) v.votantes[deviceId] = opcao;
+            salvarVotos();
+            responderJSON(res, { ok: true, jaVotou: false, votosA: v.votosA, votosB: v.votosB });
+        });
+        return;
+    }
+
+    if (req.method === 'GET' && pathName === '/prefere/pergunta') {
+        const perguntaId = String(parsed.query.id || '');
+        if (!perguntaId) return responderJSON(res, { ok: false, erro: 'ID obrigatorio' }, 400);
+        const v = votos[perguntaId] || { votosA: 0, votosB: 0 };
+        responderJSON(res, { ok: true, votosA: v.votosA || 0, votosB: v.votosB || 0 });
+        return;
+    }
+
+    if (req.method === 'GET' && pathName === '/prefere/stats') {
+        let totalA = 0, totalB = 0, totalPerguntas = 0;
+        const lista = [];
+        for (const id in votos) {
+            const v = votos[id];
+            totalA += v.votosA || 0;
+            totalB += v.votosB || 0;
+            totalPerguntas++;
+            const total = (v.votosA || 0) + (v.votosB || 0);
+            if (total > 0) {
+                const pctA = Math.round((v.votosA * 100) / total);
+                lista.push({ id, votosA: v.votosA, votosB: v.votosB, total, polarizacao: Math.abs(50 - pctA) });
+            }
+        }
+        lista.sort((a, b) => a.polarizacao - b.polarizacao);
+        responderJSON(res, {
+            ok: true, totalVotos: totalA + totalB, totalPerguntas,
+            maisPolemicas: lista.slice(0, 10)
+        });
+        return;
+    }
+
     // Rota não encontrada
     // ═══════════════════════════════════════════════════════
     responderJSON(res, { erro: 'Rota não encontrada' }, 404);
